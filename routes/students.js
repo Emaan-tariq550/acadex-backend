@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Student = require('../models/Student');
+const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
 
 // @route  GET /api/students
@@ -30,6 +31,7 @@ router.get('/', protect, authorize('admin', 'teacher'), async (req, res) => {
     const total = await Student.countDocuments(query);
     const students = await Student.find(query)
       .populate('createdBy', 'name email')
+      .populate('linkedUserId', 'name email')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
@@ -47,12 +49,17 @@ router.get('/', protect, authorize('admin', 'teacher'), async (req, res) => {
 });
 
 // @route  GET /api/students/me
-// @access Student (own data)
+// @access Student (own data only)
 router.get('/me', protect, authorize('student'), async (req, res) => {
   try {
-    const student = await Student.findOne({ email: req.user.email });
+    const student = await Student.findOne({ 
+      $or: [
+        { email: req.user.email },
+        { linkedUserId: req.user._id }
+      ]
+    });
     if (!student) {
-      return res.status(404).json({ message: 'Student profile not found.' });
+      return res.status(404).json({ message: 'Student profile not found. Contact your teacher.' });
     }
     res.json({ success: true, student });
   } catch (error) {
@@ -64,7 +71,9 @@ router.get('/me', protect, authorize('student'), async (req, res) => {
 // @access Admin, Teacher
 router.get('/:id', protect, authorize('admin', 'teacher'), async (req, res) => {
   try {
-    const student = await Student.findById(req.params.id).populate('createdBy', 'name email');
+    const student = await Student.findById(req.params.id)
+      .populate('createdBy', 'name email')
+      .populate('linkedUserId', 'name email');
     if (!student) {
       return res.status(404).json({ message: 'Student not found.' });
     }
@@ -78,14 +87,41 @@ router.get('/:id', protect, authorize('admin', 'teacher'), async (req, res) => {
 // @access Admin, Teacher
 router.post('/', protect, authorize('admin', 'teacher'), async (req, res) => {
   try {
+    const { linkedUserId, ...studentData } = req.body;
+
+    // Agar registered user se link kar rahe hain
+    if (linkedUserId) {
+      // Check karo already profile toh nahi bani
+      const existing = await Student.findOne({ linkedUserId });
+      if (existing) {
+        return res.status(400).json({ 
+          message: 'This student already has a profile. You can find them in the students list.' 
+        });
+      }
+
+      // Registered user ki info lo
+      const registeredUser = await User.findById(linkedUserId);
+      if (!registeredUser || registeredUser.role !== 'student') {
+        return res.status(400).json({ message: 'Invalid student account selected.' });
+      }
+
+      // Email aur naam registered user se lo
+      studentData.email = registeredUser.email;
+      if (!studentData.name || studentData.name.trim() === '') {
+        studentData.name = registeredUser.name;
+      }
+    }
+
     const student = await Student.create({
-      ...req.body,
+      ...studentData,
+      linkedUserId: linkedUserId || null,
       createdBy: req.user._id
     });
+
     res.status(201).json({ success: true, student });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(400).json({ message: 'Roll number already exists.' });
+      return res.status(400).json({ message: 'Roll number already exists. Please use a unique roll number.' });
     }
     res.status(500).json({ message: 'Error creating student.', error: error.message });
   }
@@ -133,8 +169,12 @@ router.post('/:id/marks', protect, authorize('admin', 'teacher'), async (req, re
     }
 
     const { subject, score, term } = req.body;
-    
-    // Calculate grade
+
+    if (score < 0 || score > 100) {
+      return res.status(400).json({ message: 'Score must be between 0 and 100.' });
+    }
+
+    // Grade calculate karo
     let grade;
     if (score >= 90) grade = 'A+';
     else if (score >= 80) grade = 'A';
@@ -143,7 +183,14 @@ router.post('/:id/marks', protect, authorize('admin', 'teacher'), async (req, re
     else if (score >= 50) grade = 'D';
     else grade = 'F';
 
-    student.marks.push({ subject, score, grade, term, addedBy: req.user._id });
+    student.marks.push({ 
+      subject, 
+      score, 
+      grade, 
+      term, 
+      addedBy: req.user._id 
+    });
+    
     await student.save();
 
     res.status(201).json({ success: true, student });

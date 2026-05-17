@@ -25,6 +25,10 @@ const userSchema = new mongoose.Schema({
     enum: ['admin', 'teacher', 'student'],
     default: 'student'
   },
+  isSuperAdmin: {
+    type: Boolean,
+    default: false
+  },
   profileImage: {
     type: String,
     default: ''

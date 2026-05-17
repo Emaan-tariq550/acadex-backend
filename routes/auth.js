@@ -3,21 +3,18 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
-const { isAllowedEmail } = require('../config/allowedDomains');
+const { isAllowedEmail, isStrongPassword } = require('../config/allowedDomains');
 const { protect } = require('../middleware/auth');
 
-// Generate JWT
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 };
 
 // @route  POST /api/auth/signup
-// @desc   Register a new user
-// @access Public
 router.post('/signup', [
   body('name').trim().isLength({ min: 2 }).withMessage('Name must be at least 2 characters'),
   body('email').isEmail().withMessage('Please enter a valid email'),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   body('role').isIn(['admin', 'teacher', 'student']).withMessage('Invalid role')
 ], async (req, res) => {
   const errors = validationResult(req);
@@ -27,22 +24,38 @@ router.post('/signup', [
 
   const { name, email, password, role } = req.body;
 
-  // ⛔ Email domain validation
+  // Email domain validation
   if (!isAllowedEmail(email)) {
     return res.status(400).json({ 
-      message: 'Only institutional emails are allowed (@school.edu, @university.edu, @college.edu)' 
+      message: 'Only institutional emails allowed. Examples: you@itu.edu.pk, you@nust.edu.pk, you@university.edu' 
+    });
+  }
+
+  // Strong password validation
+  const passwordCheck = isStrongPassword(password);
+  if (!passwordCheck.isValid) {
+    return res.status(400).json({ 
+      message: 'Weak password: ' + passwordCheck.messages.join(', ')
     });
   }
 
   try {
-    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: 'An account with this email already exists.' });
     }
 
-    // Create user
-    const user = await User.create({ name, email, password, role });
+    // First admin becomes super admin
+    const adminCount = await User.countDocuments({ role: 'admin' });
+    const isSuperAdmin = role === 'admin' && adminCount === 0;
+
+    const user = await User.create({ 
+      name, 
+      email, 
+      password, 
+      role,
+      isSuperAdmin: isSuperAdmin
+    });
     
     const token = generateToken(user._id);
 
@@ -54,6 +67,7 @@ router.post('/signup', [
         name: user.name,
         email: user.email,
         role: user.role,
+        isSuperAdmin: user.isSuperAdmin,
         createdAt: user.createdAt
       }
     });
@@ -64,8 +78,6 @@ router.post('/signup', [
 });
 
 // @route  POST /api/auth/login
-// @desc   Login user
-// @access Public
 router.post('/login', [
   body('email').isEmail().withMessage('Please enter a valid email'),
   body('password').notEmpty().withMessage('Password is required')
@@ -92,7 +104,6 @@ router.post('/login', [
       return res.status(401).json({ message: 'Your account has been deactivated.' });
     }
 
-    // Update last login
     user.lastLogin = new Date();
     await user.save({ validateBeforeSave: false });
 
@@ -106,6 +117,7 @@ router.post('/login', [
         name: user.name,
         email: user.email,
         role: user.role,
+        isSuperAdmin: user.isSuperAdmin,
         profileImage: user.profileImage,
         lastLogin: user.lastLogin
       }
@@ -117,15 +129,11 @@ router.post('/login', [
 });
 
 // @route  GET /api/auth/me
-// @desc   Get current logged-in user
-// @access Private
 router.get('/me', protect, async (req, res) => {
   res.json({ success: true, user: req.user });
 });
 
 // @route  PUT /api/auth/update-profile
-// @desc   Update user profile
-// @access Private
 router.put('/update-profile', protect, async (req, res) => {
   const { name, profileImage } = req.body;
   try {
@@ -141,11 +149,9 @@ router.put('/update-profile', protect, async (req, res) => {
 });
 
 // @route  PUT /api/auth/change-password
-// @desc   Change user password
-// @access Private
 router.put('/change-password', protect, [
   body('currentPassword').notEmpty().withMessage('Current password is required'),
-  body('newPassword').isLength({ min: 6 }).withMessage('New password must be at least 6 characters')
+  body('newPassword').isLength({ min: 8 }).withMessage('New password must be at least 8 characters')
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -153,6 +159,14 @@ router.put('/change-password', protect, [
   }
 
   const { currentPassword, newPassword } = req.body;
+
+  // Strong password check
+  const passwordCheck = isStrongPassword(newPassword);
+  if (!passwordCheck.isValid) {
+    return res.status(400).json({ 
+      message: 'Weak password: ' + passwordCheck.messages.join(', ')
+    });
+  }
 
   try {
     const user = await User.findById(req.user._id).select('+password');

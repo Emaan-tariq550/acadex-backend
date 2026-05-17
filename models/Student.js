@@ -1,12 +1,29 @@
 const mongoose = require('mongoose');
 
 const markSchema = new mongoose.Schema({
-  subject: { type: String, required: true },
-  score: { type: Number, min: 0, max: 100 },
-  grade: { type: String },
-  term: { type: String },
-  addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  addedAt: { type: Date, default: Date.now }
+  subject: { 
+    type: String, 
+    required: true 
+  },
+  score: { 
+    type: Number, 
+    min: 0, 
+    max: 100 
+  },
+  grade: { 
+    type: String 
+  },
+  term: { 
+    type: String 
+  },
+  addedBy: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'User' 
+  },
+  addedAt: { 
+    type: Date, 
+    default: Date.now 
+  }
 });
 
 const studentSchema = new mongoose.Schema({
@@ -26,6 +43,14 @@ const studentSchema = new mongoose.Schema({
     trim: true,
     lowercase: true
   },
+
+  // ✅ FIX 6 — Registered user se link karo
+  linkedUserId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+
   class: {
     type: String,
     required: [true, 'Class is required']
@@ -43,10 +68,18 @@ const studentSchema = new mongoose.Schema({
     type: String,
     enum: ['Male', 'Female', 'Other']
   },
-  phone: String,
-  address: String,
-  parentName: String,
-  parentPhone: String,
+  phone: {
+    type: String
+  },
+  address: {
+    type: String
+  },
+  parentName: {
+    type: String
+  },
+  parentPhone: {
+    type: String
+  },
   marks: [markSchema],
   attendancePercentage: {
     type: Number,
@@ -70,19 +103,6 @@ const studentSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true
-});
-
-// Auto-assign grade based on score
-markSchema.pre('save', function(next) {
-  if (this.score !== undefined) {
-    if (this.score >= 90) this.grade = 'A+';
-    else if (this.score >= 80) this.grade = 'A';
-    else if (this.score >= 70) this.grade = 'B';
-    else if (this.score >= 60) this.grade = 'C';
-    else if (this.score >= 50) this.grade = 'D';
-    else this.grade = 'F';
-  }
-  next();
 });
 
 module.exports = mongoose.model('Student', studentSchema);
