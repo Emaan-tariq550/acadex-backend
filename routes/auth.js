@@ -24,14 +24,12 @@ router.post('/signup', [
 
   const { name, email, password, role } = req.body;
 
-  // Email domain validation
   if (!isAllowedEmail(email)) {
     return res.status(400).json({ 
-      message: 'Only institutional emails allowed. Examples: you@itu.edu.pk, you@nust.edu.pk, you@university.edu' 
+      message: 'Only institutional emails allowed. Examples: you@itu.edu.pk, you@university.edu' 
     });
   }
 
-  // Strong password validation
   const passwordCheck = isStrongPassword(password);
   if (!passwordCheck.isValid) {
     return res.status(400).json({ 
@@ -45,7 +43,6 @@ router.post('/signup', [
       return res.status(400).json({ message: 'An account with this email already exists.' });
     }
 
-    // First admin becomes super admin
     const adminCount = await User.countDocuments({ role: 'admin' });
     const isSuperAdmin = role === 'admin' && adminCount === 0;
 
@@ -73,7 +70,7 @@ router.post('/signup', [
     });
   } catch (error) {
     console.error('Signup error:', error);
-    res.status(500).json({ message: 'Server error during signup.' });
+    res.status(500).json({ message: error.message });
   }
 });
 
@@ -160,7 +157,6 @@ router.put('/change-password', protect, [
 
   const { currentPassword, newPassword } = req.body;
 
-  // Strong password check
   const passwordCheck = isStrongPassword(newPassword);
   if (!passwordCheck.isValid) {
     return res.status(400).json({ 
