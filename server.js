@@ -8,7 +8,12 @@ dotenv.config();
 const app = express();
 
 app.use(cors({
-  origin: '*',
+  origin: [
+    'http://localhost:3000',
+    'https://thriving-cobbler-1e879e.netlify.app',
+    'https://acadex-frontend-md44.vercel.app',
+    process.env.FRONTEND_URL
+  ],
   credentials: true
 }));
 app.use(express.json());
